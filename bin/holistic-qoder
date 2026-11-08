@@ -1,0 +1,4 @@
+#!/bin/sh
+# 包内 CLI 入口：自动定位同包的 runtime/holistic.py
+here=$(cd "$(dirname "$0")" && pwd)
+exec python3 "$here/../runtime/holistic.py" "$@"

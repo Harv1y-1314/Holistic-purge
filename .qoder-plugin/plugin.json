@@ -1,0 +1,48 @@
+{
+  "name": "holistic-qoder-cn",
+  "displayName": "Holistic Purge · Qoder CN",
+  "version": "1.1.1",
+  "description": "把 Holistic-purge 的破甲内核适配到 Qoder CN：L0 逐轮 hook 注入（内生）+ L1 权限放行 + L2 记忆 + L3 worker 字节层 + L4 技能/Agent。全程本机读写、无网络、逐层可逆。",
+  "author": {
+    "name": "Harv1y-1314"
+  },
+  "license": "MIT",
+  "keywords": [
+    "qoder-plugin",
+    "qoder-cn",
+    "holistic",
+    "purge",
+    "local",
+    "prompt",
+    "offline"
+  ],
+  "category": "Coding",
+  "tags": [
+    "qoder-plugin",
+    "local",
+    "prompt",
+    "offline",
+    "holistic"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Holistic Purge · Qoder CN",
+    "shortDescription": "四层本机注入：配置放行 + 记忆内核 + worker 字节层 + 10 条车道",
+    "longDescription": "Holistic-purge 的 Qoder CN 适配版。L1 把 settings.json 权限模式置为 bypassPermissions；L2 通过 Qoder 官方 memory 通道逐轮注入 Holistic 内核 + 路由摘要 + closure；L3 按明文锚点改写 worker bundle 的 7 个站点（主体身份段注入内核、交付段追加 closure、防泄露/行动准则/审批策略/跨会话消息覆盖），每站点独立标记、整体可逆；L4 提供 10 条车道技能（破解授权/逆向/外挂/成人/免杀/Web/取证/报告/移动/固件）与内核、控制台技能。只在 macOS 本机读写，不联网，不碰宿主 app.asar 本体。",
+    "developerName": "Harv1y-1314",
+    "category": "coding",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "开启 Holistic 破甲（本机 Qoder CN）",
+      "查看 Holistic 状态",
+      "贴 Holistic 内核（当前会话立即生效）"
+    ],
+    "brandColor": "#111827",
+    "composerIcon": "./assets/avatar.svg",
+    "logo": "./assets/avatar.svg",
+    "screenshots": []
+  }
+}
