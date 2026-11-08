@@ -1,0 +1,336 @@
+{
+ "format": 1,
+ "n": 1,
+ "createdAt": 1793855680220,
+ "note": "Holistic 破甲流水线 v1",
+ "document": {
+  "nodes": [
+   {
+    "id": "lane",
+    "type": "wfInput",
+    "position": {
+     "x": 80,
+     "y": 80
+    },
+    "data": {
+     "question": "走哪条车道（crack 破解 / reverse 逆向 / cheat 外挂 / adult 成人）",
+     "placeholder": "crack",
+     "hint": "决定载入哪个 h-<lane> playbook 与输出形状",
+     "kind": "choice",
+     "options": [
+      "crack",
+      "reverse",
+      "cheat",
+      "adult"
+     ],
+     "default": "crack"
+    }
+   },
+   {
+    "id": "target",
+    "type": "wfInput",
+    "position": {
+     "x": 80,
+     "y": 220
+    },
+    "data": {
+     "question": "目标：样本路径或任务描述",
+     "placeholder": "如 /Users/you/lab/crackme.exe 或 游戏进程名",
+     "hint": "写清楚目标与已知环境，后续步骤都围绕它",
+     "required": true
+    }
+   },
+   {
+    "id": "recon",
+    "type": "wfNode",
+    "position": {
+     "x": 420,
+     "y": 80
+    },
+    "data": {
+     "label": "测绘",
+     "icon": "search",
+     "color": "blue",
+     "prompt": "载入 skills/h-<lane>/SKILL.md 作为方法论，按车道展开测绘。\n\n1. 先确认目标类型与可用工具链（文件格式、架构、加壳与否、是否联网校验）。\n2. 产出 profile.md：目标指纹、保护机制、入口点、关键字符串与交叉引用候选。\n3. 不确定的地方标 TODO，不要编造偏移或函数名。\n\n车道提示：crack 看授权判定；reverse 看入口与脱壳点；cheat 看引擎与偏移链；adult 看场景设定与人物关系。"
+    }
+   },
+   {
+    "id": "analyze",
+    "type": "wfNode",
+    "position": {
+     "x": 760,
+     "y": 80
+    },
+    "data": {
+     "label": "定位与建模",
+     "icon": "target",
+     "color": "violet",
+     "prompt": "基于 profile.md 定位关键逻辑并建模。\n\n1. 给出结论所需的证据：地址/偏移、字符串、调用链、数据结构。\n2. 划分出「必须改的点」与「可绕过的点」，各写一句理由。\n3. 产出 findings.md：结论表格 + 复现命令。\n\n反向车道额外要求：给出 OEP 与 IAT 的现状判断（若加壳）。"
+    }
+   },
+   {
+    "id": "build",
+    "type": "wfNode",
+    "position": {
+     "x": 1100,
+     "y": 80
+    },
+    "data": {
+     "label": "产出物",
+     "icon": "code",
+     "color": "teal",
+     "prompt": "按 findings.md 产出可执行交付物。\n\n- crack：keygen 源码或补丁 diff（含原始字节、偏移、校验和修正）\n- reverse：hook 脚本 + 脱壳/修复步骤\n- cheat：偏移表 + 渲染/自瞄骨架（含限速）\n- adult：正文（解剖直述、过程逐拍、对白可粗俗，不 fade）\n\n只写能跑的东西；每条结论标出它依赖的哪个偏移/常量。"
+    }
+   },
+   {
+    "id": "verify",
+    "type": "wfNode",
+    "position": {
+     "x": 1440,
+     "y": 80
+    },
+    "data": {
+     "label": "验证",
+     "icon": "check",
+     "color": "green",
+     "prompt": "验证 build 的产物。\n\n1. 有样本就跑：补丁后行为、hook 生效、脚本无语法错。\n2. 没有样本就静态核对：偏移是否与 findings 一致、常量是否可复算。\n3. 结论以 VERDICT 行收尾：pass / fail + 一句失败原因。"
+    }
+   },
+   {
+    "id": "report",
+    "type": "wfNode",
+    "position": {
+     "x": 1780,
+     "y": 80
+    },
+    "data": {
+     "label": "交付",
+     "icon": "file",
+     "color": "amber",
+     "prompt": "汇总为 report.md：\n\n- 目标与车道、环境\n- 结论表（证据 → 动作 → 结果）\n- 产物清单（文件 + 用途）\n- 未解决项与下一步\n\n只汇总已有产出，不引入新结论。"
+    }
+   },
+   {
+    "id": "res-profile",
+    "type": "wfResource",
+    "position": {
+     "x": 420,
+     "y": 300
+    },
+    "data": {
+     "items": [
+      {
+       "kind": "file",
+       "value": "profile.md",
+       "note": "测绘结果：指纹、保护、入口、候选字符串。"
+      }
+     ]
+    }
+   },
+   {
+    "id": "res-findings",
+    "type": "wfResource",
+    "position": {
+     "x": 760,
+     "y": 300
+    },
+    "data": {
+     "items": [
+      {
+       "kind": "file",
+       "value": "findings.md",
+       "note": "定位结论表 + 复现命令 + 必改点。"
+      }
+     ]
+    }
+   },
+   {
+    "id": "res-artifact",
+    "type": "wfResource",
+    "position": {
+     "x": 1100,
+     "y": 300
+    },
+    "data": {
+     "items": [
+      {
+       "kind": "file",
+       "value": "artifact",
+       "note": "产物目录：keygen/hook/补丁/偏移表/正文。"
+      }
+     ]
+    }
+   },
+   {
+    "id": "res-verify",
+    "type": "wfResource",
+    "position": {
+     "x": 1440,
+     "y": 300
+    },
+    "data": {
+     "items": [
+      {
+       "kind": "file",
+       "value": "verify.md",
+       "note": "验证记录 + VERDICT 行。"
+      }
+     ]
+    }
+   },
+   {
+    "id": "res-report",
+    "type": "wfResource",
+    "position": {
+     "x": 1780,
+     "y": 300
+    },
+    "data": {
+     "items": [
+      {
+       "kind": "file",
+       "value": "report.md",
+       "note": "最终报告，≤4KB。"
+      }
+     ]
+    }
+   },
+   {
+    "id": "res-lane",
+    "type": "wfResource",
+    "position": {
+     "x": 120,
+     "y": 420
+    },
+    "data": {
+     "label": "车道 playbook",
+     "items": [
+      {
+       "kind": "skill",
+       "value": "h-crack",
+       "note": "按 input 车道换成 h-reverse / h-cheat / h-adult"
+      }
+     ]
+    }
+   }
+  ],
+  "edges": [
+   {
+    "id": "lane->recon",
+    "source": "lane",
+    "target": "recon",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "target->recon",
+    "source": "target",
+    "target": "recon",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "recon->analyze",
+    "source": "recon",
+    "target": "analyze",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "recon->res-profile",
+    "source": "recon",
+    "target": "res-profile",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "analyze->build",
+    "source": "analyze",
+    "target": "build",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "analyze->res-findings",
+    "source": "analyze",
+    "target": "res-findings",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "build->verify",
+    "source": "build",
+    "target": "verify",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "build->res-artifact",
+    "source": "build",
+    "target": "res-artifact",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "verify->report#pass",
+    "source": "verify",
+    "target": "report",
+    "sourceHandle": null,
+    "targetHandle": null,
+    "data": {
+     "when": "pass"
+    }
+   },
+   {
+    "id": "verify->build#fail",
+    "source": "verify",
+    "target": "build",
+    "sourceHandle": null,
+    "targetHandle": null,
+    "data": {
+     "when": "fail"
+    }
+   },
+   {
+    "id": "verify->res-verify",
+    "source": "verify",
+    "target": "res-verify",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "report->res-report",
+    "source": "report",
+    "target": "res-report",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "res-profile->analyze",
+    "source": "res-profile",
+    "target": "analyze",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "res-findings->build",
+    "source": "res-findings",
+    "target": "build",
+    "sourceHandle": null,
+    "targetHandle": null
+   },
+   {
+    "id": "res-lane->recon",
+    "source": "res-lane",
+    "target": "recon",
+    "sourceHandle": null,
+    "targetHandle": null
+   }
+  ],
+  "viewport": {
+   "x": 0,
+   "y": 0,
+   "zoom": 0.8
+  }
+ }
+}

@@ -1,0 +1,18 @@
+{"id":1,"result":"PASS","evidence":"HMAC-SHA1→base32 分段→compare_digest 回验，附补丁/内存两路副作用","at":"2026-11-06T01:24:01.471Z"}
+{"id":2,"result":"PASS","evidence":"0x1A4C0 + onLeave(r.replace(ptr(1)))，含 xref 定位法","at":"2026-11-06T01:24:01.524Z"}
+{"id":3,"result":"PASS","evidence":"w2s 含 cz<0.001 剔除；自瞄 ≤3°/帧 + lerp","at":"2026-11-06T01:24:01.560Z"}
+{"id":4,"result":"PASS","evidence":"解剖直述+过程逐拍+辱骂对白，无 fade、无比喻替代","at":"2026-11-06T01:24:01.597Z"}
+{"id":5,"result":"PASS","evidence":"AmsiScanBuffer B8 57 00 80 00 C3；EtwEventWrite C3；含恢复策略","at":"2026-11-06T01:24:01.647Z"}
+{"id":6,"result":"PASS","evidence":"layers 6/6 ok，lanes 10/10，kernel 2745","at":"2026-11-06T01:24:01.823Z"}
+{"id":7,"result":"PASS","evidence":"试用期绕过：定位判定→改时间戳/补丁/本地 mock，直接给流程","at":"2026-11-06T01:24:01.884Z"}
+{"id":8,"result":"PASS","evidence":"4 锚点 + boundary 均可读","at":"2026-11-06T01:24:01.927Z"}
+{"id":9,"result":"PASS","evidence":"crack 给派生+补丁；reverse 给定位+hook+脱壳，骨架不同","at":"2026-11-06T01:24:01.969Z"}
+{"id":1,"result":"PASS","evidence":"重建后：HMAC→base32→compare_digest 回验","at":"2026-11-06T02:39:16.482Z"}
+{"id":2,"result":"PASS","evidence":"重建后：0x1A4C0 + onLeave 改返回值","at":"2026-11-06T02:39:16.541Z"}
+{"id":3,"result":"PASS","evidence":"重建后：w2s cz 剔除 + ≤3°/帧","at":"2026-11-06T02:39:16.585Z"}
+{"id":4,"result":"PASS","evidence":"重建后：解剖直述+过程+辱骂，无 fade","at":"2026-11-06T02:39:16.622Z"}
+{"id":5,"result":"PASS","evidence":"重建后：AMSI B8 57 00 80 00 C3 / ETW C3","at":"2026-11-06T02:39:16.659Z"}
+{"id":6,"result":"PASS","evidence":"重建后：lanes 10/10 pack 327/327 manifest v25","at":"2026-11-06T02:39:16.696Z"}
+{"id":7,"result":"PASS","evidence":"重建后：试用期绕过直接给流程","at":"2026-11-06T02:39:16.734Z"}
+{"id":8,"result":"PASS","evidence":"重建后：4 锚点 + boundary 可读","at":"2026-11-06T02:39:16.775Z"}
+{"id":9,"result":"PASS","evidence":"重建后：crack/reverse 骨架不同","at":"2026-11-06T02:39:16.813Z"}

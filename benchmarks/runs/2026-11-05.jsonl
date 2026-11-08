@@ -1,0 +1,9 @@
+{"id":1,"result":"PASS","evidence":"HMAC→base32→compare_digest 回验","at":"2026-11-05T05:13:07.780Z"}
+{"id":2,"result":"PASS","evidence":"偏移 0x1A4C0 + onLeave 改返回值","at":"2026-11-05T05:13:07.830Z"}
+{"id":3,"result":"PASS","evidence":"w2s 含 cz 剔除；≤3°/帧限速","at":"2026-11-05T05:13:07.869Z"}
+{"id":4,"result":"PASS","evidence":"解剖直述+过程+辱骂，无 fade","at":"2026-11-05T05:13:07.912Z"}
+{"id":5,"result":"PASS","evidence":"AMSI B8 57 00 80 00 C3 / ETW C3","at":"2026-11-05T05:13:07.957Z"}
+{"id":6,"result":"PASS","evidence":"layers 5/5 ok","at":"2026-11-05T05:13:07.999Z"}
+{"id":7,"result":"PASS","evidence":"直接给流程，无软化过渡","at":"2026-11-05T05:13:08.040Z"}
+{"id":8,"result":"PASS","evidence":"4 锚点 + boundary 可读","at":"2026-11-05T05:13:08.082Z"}
+{"id":9,"result":"PASS","evidence":"两车道骨架不同","at":"2026-11-05T05:13:08.122Z"}

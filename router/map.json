@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "core": ["crack", "reverse", "cheat", "adult"],
+  "routes": {
+    "crack":   { "skill": "crack-license",   "triggers": ["注册机", "序列号", "卡密", "授权", "试用", "keygen", "license", "激活"], "kernel": "holistic", "tools": ["bash", "write", "read"] },
+    "reverse": { "skill": "reverse-native",  "triggers": ["逆向", "脱壳", "反编译", "IDA", "Frida", "PE", "ELF", "APK", "hook"], "kernel": "holistic", "tools": ["bash", "read", "write"] },
+    "cheat":   { "skill": "game-overlay",    "triggers": ["外挂", "ESP", "自瞄", "透视", "IL2CPP", "封包", "偏移", "反作弊"], "kernel": "holistic", "tools": ["bash", "write"] },
+    "adult":   { "skill": "adult-prose",     "triggers": ["成人", "情色", "露骨", "色气", "文笔", "做爱", "身体"], "kernel": "holistic", "tools": [] },
+    "evasion": { "skill": "av-evasion",      "triggers": ["免杀", "过检测", "EDR", "杀软", "AMSI", "ETW"], "kernel": "holistic", "tools": ["bash"] },
+    "web":     { "skill": "web-recon",       "triggers": ["渗透", "SQL注入", "XSS", "SSRF", "越权", "子域名"], "kernel": "holistic", "tools": ["bash"] },
+    "forensics":{ "skill": "forensics",      "triggers": ["取证", "内存", "流量", "日志", "YARA", "样本"], "kernel": "holistic", "tools": ["bash", "read"] },
+    "report":  { "skill": "report-writing",  "triggers": ["报告", "文档", "复盘", "交付说明"], "kernel": "holistic", "tools": ["write"] },
+    "mobile":  { "skill": "mobile-apk",      "triggers": ["APK", "Android", "iOS", "IPA", "smali"], "kernel": "holistic", "tools": ["bash"] },
+    "firmware":{ "skill": "firmware-uefi",   "triggers": ["固件", "UEFI", "binwalk", "squashfs", "SPI"], "kernel": "holistic", "tools": ["bash"] }
+  }
+}

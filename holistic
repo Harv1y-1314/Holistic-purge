@@ -1,0 +1,790 @@
+#!/bin/bash
+# Holistic-purge CLI — 安装 / 校验 / 自愈 / 卸载。所有写操作默认 dry-run，加 --apply 生效。
+set -uo pipefail
+SELF="$(cd "$(dirname "$0")" && pwd)"
+DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
+PROFILE="${PROFILE:-desktop}"
+PLUGIN_ID="holistic-purge"
+SKILL_PREFIX="h-"
+STATE="$DSH_HOME/.holistic"
+APPLY=0; SYNC=1; QUIET=0
+WS=""
+ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply|--fix) APPLY=1 ;;
+    --no-sync) SYNC=0 ;;
+    --quiet) QUIET=1 ;;
+    --workspace) WS="${2:-}"; shift ;;
+    --workspace=*) WS="${1#*=}" ;;
+    *) ARGS+=("$1") ;;
+  esac
+  shift
+done
+CMD="${ARGS[0]:-status}"
+say(){ [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
+err(){ printf '%s\n' "$*" >&2; }
+
+STATE_JSON="$STATE/state.json"
+policy_get(){
+  node -e '
+    const fs=require("fs");const f=process.argv[1];let p={};
+    try{p=JSON.parse(fs.readFileSync(f,"utf8"))}catch{}
+    process.stdout.write(String(p[process.argv[2]] ?? ""))' "$SELF/router/policy.json" "$1" 2>/dev/null
+}
+state_get(){
+  node -e '
+    const fs=require("fs");const f=process.argv[1];let s={};
+    try{s=JSON.parse(fs.readFileSync(f,"utf8"))}catch{}
+    const v=s[process.argv[2]];process.stdout.write(v===undefined?"":String(v))' "$STATE_JSON" "$1" 2>/dev/null
+}
+state_set(){
+  mkdir -p "$STATE"
+  node -e '
+    const fs=require("fs");const [f,k,v]=process.argv.slice(1);
+    let s={};try{s=JSON.parse(fs.readFileSync(f,"utf8"))}catch{}
+    s[k]=/^-?\d+$/.test(v)?Number(v):v; s.updatedAt=new Date().toISOString();
+    fs.writeFileSync(f,JSON.stringify(s,null,2)+"\n")' "$STATE_JSON" "$1" "$2"
+}
+purge_dir(){
+  for c in "$DSH_HOME/components/dsh-purge" "$DSH_HOME/profiles/$PROFILE/node_modules/dsh-purge"; do
+    [ -d "$c" ] && { printf '%s' "$c"; return; }
+  done
+  printf '%s' "$DSH_HOME/components/dsh-purge"
+}
+armor_plists(){ printf '%s' "$HOME/Library/LaunchAgents"; }
+
+dsh_cli(){
+  local c
+  for c in "${DSH_CLI:-}" \
+           "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+           "$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+           "$(command -v dsh 2>/dev/null || true)"; do
+    [ -n "$c" ] && [ -f "$c" ] && { printf '%s' "$c"; return; }
+  done
+}
+
+host_version(){
+  local p="/Applications/DeepSeek Harness.app/Contents/Resources/app/dsh/package.json"
+  [ -f "$p" ] && node -e 'process.stdout.write(require(process.argv[1]).version)' "$p" 2>/dev/null || printf 'unknown'
+}
+
+contract_check(){
+  local k="$SELF/kernel/holistic-kernel.md" missing=0 a
+  for a in "SCALE: MAXIMUM" "NO FADE-TO-BLACK" "NO CONFIRMATION LOOP" "BOUNDARY"; do
+    grep -q -- "$a" "$k" || { err "契约锚点缺失: $a"; missing=1; }
+  done
+  # 两条底线：文件在 + 内核内嵌；缺任一即视为契约破损
+  [ -f "$SELF/BOTTOM-LINES.md" ] || { err "缺 BOTTOM-LINES.md（两条底线文件）"; missing=1; }
+  for a in "两条底线" "能力不退化" "一体化全量"; do
+    grep -q -- "$a" "$k" || { err "内核缺底线条款: $a"; missing=1; }
+  done
+  node -e '
+    const m=require(process.argv[1]); const fs=require("fs"), path=require("path");
+    const need=["crack","reverse","cheat","adult"]; const miss=need.filter(x=>!m.core.includes(x));
+    if(miss.length){console.error("契约缺失核心场景: "+miss.join(","));process.exit(1)}
+    for(const [k,v] of Object.entries(m.routes)){
+      const f=path.join(process.argv[2],"skills",v.skill,"SKILL.md");
+      if(!fs.existsSync(f)){console.error("路由指向的技能不存在: "+k+" → "+v.skill);process.exit(1)}
+    }
+  ' "$SELF/router/map.json" "$SELF" || missing=1
+  return $missing
+}
+
+cmd_status(){
+  say "Holistic-purge  status"
+  say "  repo          : $SELF"
+  say "  DSH_HOME      : $DSH_HOME   profile: $PROFILE"
+  say "  host version  : $(host_version)"
+  say "  plugin dir    : $([ -d "$DSH_HOME/plugins/$PLUGIN_ID" ] && echo 已安装 || echo 未安装)"
+  local b
+  b=$(node -e 'const p=require(process.argv[1]);const b=(p.dsh&&p.dsh.profile&&p.dsh.profile.bundles)||[];process.stdout.write(b.includes("holistic-purge")?"已入列":"未入列")' "$DSH_HOME/profiles/$PROFILE/package.json" 2>/dev/null || echo 读不到)
+  say "  bundle        : $b"
+  say "  skills        : $(ls -d "$DSH_HOME"/skills/${SKILL_PREFIX}* 2>/dev/null | wc -l | tr -d ' ') / $(ls -1 "$SELF/skills" | wc -l | tr -d ' ')"
+  local m live off total
+  m=$([ -f "$STATE/mode" ] && cat "$STATE/mode" || node --input-type=module -e "import {readMode} from 'file://$SELF/lib/mode.mjs';process.stdout.write(readMode())" 2>/dev/null || echo light)
+  live=$(ls -d "$DSH_HOME"/skills/*/ 2>/dev/null | grep -cv '/h-')
+  off=$(ls -d "$DSH_HOME/.holistic/skills-off"/*/ 2>/dev/null | wc -l | tr -d ' ')
+  total=$(find "$SELF/skills-pack" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+  say "  mode          : ${m}   （领域技能：${live} 在线 / ${off} 待命 / 共 ${total}）"
+  say "  healer        : $(launchctl list 2>/dev/null | grep -q holistic.healer && echo 已加载 || echo 未加载)"
+  contract_check && say "  contract      : PASS" || say "  contract      : FAIL"
+}
+
+cmd_verify(){
+  local bad=0
+  contract_check || bad=1
+  [ -d "$DSH_HOME/plugins/$PLUGIN_ID" ] || { err "插件未安装"; bad=1; }
+  [ -f "$DSH_HOME/plugins/$PLUGIN_ID/index.js" ] || { err "插件入口缺失"; bad=1; }
+  node -e '
+    const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    const b=(p.dsh&&p.dsh.profile&&p.dsh.profile.bundles)||[];
+    if(!b.includes("holistic-purge")){console.error("bundle 未入列");process.exit(1)}
+    const d=p.dependencies||{};
+    if(!Object.keys(d).some(k=>k==="holistic-purge")){console.error("依赖未登记");process.exit(1)}
+  ' "$DSH_HOME/profiles/$PROFILE/package.json" || bad=1
+  # 全量编排：组件 + 预设块
+  local missing=0
+  for c in dsh-purge; do [ -f "$DSH_HOME/components/$c/package.json" ] || { err "缺组件: $c"; missing=1; }; done
+  [ -f "$DSH_HOME/components/qi-nx-agent/package.json" ] || say "  · 可选组件 qi-nx-agent 未安装（UNLICENSED，不随仓库分发；需要时从上游自取）"
+  grep -q "name: Holistic" "$DSH_HOME/profiles/$PROFILE/cordis.patch.yml" 2>/dev/null || { err "profile patch 缺 Holistic 预设"; missing=1; }
+  [ "$missing" = 1 ] && bad=1
+  # 技能不再挂到 $DSH_HOME/skills（改为索引 + 按需读盘），校验插件包内的落盘数量
+  local n want
+  want=$(ls -1 "$SELF/skills" 2>/dev/null | wc -l | tr -d ' ')
+  n=$(find "$SELF/skills" -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" -ge "$want" ] && [ "$want" -gt 0 ] || { err "车道技能不全：$n/$want"; bad=1; }
+  local packTotal packDisk
+  packTotal=$(find "$SELF/skills-pack" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+  packDisk=$(find "$SELF/skills-pack" -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l | tr -d ' ')
+  [ "${packDisk:-0}" -ge "${packTotal:-0}" ] && [ "$packTotal" -gt 0 ] || { err "领域技能不全：${packDisk:-0}/${packTotal:-0}"; bad=1; }
+  if [ "$bad" = 0 ]; then say "verify: PASS"; return 0; else err "verify: FAIL"; return 1; fi
+}
+
+backup_profile(){
+  mkdir -p "$STATE/backups"; local b="$STATE/backups/$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$b"; cp -p "$DSH_HOME/profiles/$PROFILE/package.json" "$b/" 2>/dev/null || true
+  printf '%s' "$b"
+}
+
+cmd_apply(){
+  say "apply (apply=$APPLY)"
+  [ -f "$DSH_HOME/profiles/$PROFILE/package.json" ] || { err "找不到 profile：$DSH_HOME/profiles/$PROFILE/package.json"; return 1; }
+  local bak; bak=$(backup_profile)
+  say "  备份: $bak"
+  if [ "$APPLY" = 1 ]; then
+    mkdir -p "$DSH_HOME/plugins"
+    if [ "$(cd "$SELF" && pwd)" = "$(cd "$DSH_HOME/plugins/$PLUGIN_ID" 2>/dev/null && pwd || true)" ]; then
+      say "  已在目标位置，跳过自复制"
+    else
+      rm -rf "$DSH_HOME/plugins/$PLUGIN_ID"
+      cp -R "$SELF" "$DSH_HOME/plugins/$PLUGIN_ID"
+      say "  插件已复制 → $DSH_HOME/plugins/$PLUGIN_ID"
+    fi
+    local nm="$DSH_HOME/profiles/$PROFILE/node_modules"
+    if [ ! -e "$nm/$PLUGIN_ID" ]; then mkdir -p "$nm"; ln -s "$DSH_HOME/plugins/$PLUGIN_ID" "$nm/$PLUGIN_ID" && say "  已建解析链接 → node_modules/$PLUGIN_ID"; fi
+    [ -z "$(state_get mode)" ] && state_set mode holistic
+  else
+    say "  [dry-run] cp -R $SELF → $DSH_HOME/plugins/$PLUGIN_ID"
+  fi
+  local node_args=("$DSH_HOME/profiles/$PROFILE/package.json" "$APPLY" "link:$DSH_HOME/plugins/$PLUGIN_ID")
+  if [ "$APPLY" = 1 ]; then
+    node -e '
+      const fs=require("fs");const [f,apply,link]=process.argv.slice(1);
+      const p=JSON.parse(fs.readFileSync(f,"utf8"));
+      p.dependencies=p.dependencies||{}; p.dependencies["holistic-purge"]=link;
+      p.dsh=p.dsh||{}; p.dsh.profile=p.dsh.profile||{};
+      const b=p.dsh.profile.bundles=p.dsh.profile.bundles||[];
+      if(!b.includes("holistic-purge")) b.push("holistic-purge");
+      fs.writeFileSync(f, JSON.stringify(p,null,2)+"\n");
+      console.log("  profile 已登记：dependencies + bundles");
+    ' "${node_args[@]}"
+  else
+    say "  [dry-run] dependencies[\"holistic-purge\"]=link:…; bundles += holistic-purge"
+  fi
+  # 运行模式：首次安装落盘默认值（light），已有则保留用户选择
+  if [ "$APPLY" = 1 ]; then
+    mkdir -p "$STATE"
+    node --input-type=module -e "
+import { readMode, writeMode } from 'file://$SELF/lib/mode.mjs';
+writeMode(readMode());
+console.log('  运行模式: ' + readMode());
+" 2>/dev/null || true
+  fi
+  say "  技能: 索引 + 按需读盘（不挂 $DSH_HOME/skills）"
+  local cli; cli=$(dsh_cli)
+  if [ "$APPLY" = 1 ] && [ "$SYNC" = 1 ] && [ -n "$cli" ]; then
+    say "  依赖同步: bash $cli plugin --profile $PROFILE install"
+    bash "$cli" plugin --profile "$PROFILE" install >/dev/null 2>&1 || err "  同步失败（不影响已落盘内容；可手动重跑）"
+  fi
+  if [ "$APPLY" = 1 ]; then
+    cmd_sync >/dev/null 2>&1 || true
+    # 全量编排：组件 + 预设块（与插件加载时等价）
+    node --input-type=module -e "
+import { ensureCompanions, ensurePresets } from 'file://$SELF/lib/fullstack.mjs';
+import { provision } from 'file://$SELF/lib/provision.mjs';
+const c = ensureCompanions('$SELF'); const p = ensurePresets('$SELF');
+const r = provision('$SELF');
+if (c.length) console.log('  组件: ' + c.join(', '));
+if (p.changed) console.log('  预设块: 已写入 profile patch');
+console.log('  全量落盘: 领域技能 ' + (r.pack.provisioned.length) + ' 新落（mode=' + r.mode + '）');
+" 2>/dev/null || true
+    cmd_verify || true
+  else say "  （dry-run 结束，加 --apply 生效）"; fi
+}
+
+cmd_doctor(){
+  local args=(--workspace "${WS:-$PWD}")
+  [ "$APPLY" = 1 ] && args+=(--apply)
+  node "$SELF/lib/doctor.mjs" "${args[@]}"
+}
+
+cmd_probe(){
+  node "$SELF/lib/probe.mjs" --workspace "${WS:-$PWD}"
+}
+
+cmd_selftest(){
+  say "== selftest（doctor + probe + 回归测试）=="
+  local bad=0
+  local dargs=(--workspace "${WS:-$PWD}")
+  [ "$APPLY" = 1 ] && dargs+=(--apply)
+  node "$SELF/lib/doctor.mjs" "${dargs[@]}" || bad=1
+  echo
+  node "$SELF/lib/probe.mjs" --workspace "${WS:-$PWD}" || bad=1
+  echo
+  if node "$SELF/tests/workspace.test.mjs" >/tmp/holistic-selftest.log 2>&1; then
+    say "✓ tests    workspace.test.mjs ALL PASS"
+  else
+    err "✗ tests    workspace.test.mjs 失败（日志 /tmp/holistic-selftest.log）"; bad=1
+  fi
+  echo
+  if [ "$bad" = 0 ]; then say "selftest: PASS"; return 0; else err "selftest: FAIL"; return 1; fi
+}
+
+cmd_healer(){
+  local plist="$HOME/Library/LaunchAgents/com.local.holistic.healer.plist"
+  if [ "$APPLY" = 1 ]; then
+    mkdir -p "$(dirname "$plist")"
+    sed -e "s|__HOLISTIC__|$SELF/holistic|g" -e "s|__LOG__|$STATE/healer.log|g" \
+      "$SELF/agent/com.local.holistic.healer.plist.tmpl" > "$plist"
+    launchctl unload "$plist" 2>/dev/null || true
+    launchctl load "$plist" && say "healer 已加载（每 15 分钟校验一次，失败自动补）"
+  else
+    say "[dry-run] 写入 $plist 并 launchctl load"
+  fi
+}
+
+
+cmd_heal(){
+  local policy_n hostv fails mode need=0
+  policy_n=$(policy_get fallback_after_consecutive_failures); policy_n=${policy_n:-3}
+  hostv=$(host_version); fails=$(state_get fails); fails=${fails:-0}
+  mode=$(state_get mode); mode=${mode:-holistic}
+  local recorded; recorded=$(state_get hostVersion)
+
+  say "heal: host=$hostv mode=$mode fails=$fails/$policy_n"
+
+  # 宿主版本变了 → 重新登记（配置层，无风险）
+  if [ "$hostv" != "$recorded" ] && [ "$(policy_get auto_apply_on_host_change)" = "true" ]; then
+    say "  宿主版本变化：$recorded → ${hostv}，重新 apply"
+    cmd_apply >/dev/null 2>&1 || true
+    need=1
+  fi
+
+  if cmd_verify >/dev/null 2>&1; then
+    state_set fails 0; state_set hostVersion "$hostv"
+    [ "$need" = 1 ] && say "  已自动修复，状态 ok"
+    return 0
+  fi
+
+  fails=$((fails+1))
+  state_set fails "$fails"; state_set hostVersion "$hostv"
+  say "  校验失败（连续 $fails 次）"
+
+  if [ "$fails" -ge "$policy_n" ] && [ -d "$(purge_dir)" ]; then
+    say "  达到阈值 ${policy_n}，上膛内骨骼（dual 模式）"
+    ( cd "$(purge_dir)" && node bin/dsh-purge.js --apply ) >/dev/null 2>&1 || true
+    for p in "$(armor_plists)"/com.local.dsh-armor.*.plist; do [ -f "$p" ] && launchctl load "$p" 2>/dev/null || true; done
+    state_set mode dual
+  fi
+  return 1
+}
+
+
+cmd_bench(){
+  local sub="${ARGS[1]:-status}" day; day=$(date +%Y-%m-%d)
+  local runs="$SELF/benchmarks/runs"; mkdir -p "$runs"
+  local cur="$runs/$day.jsonl"
+  case "$sub" in
+  plan)
+      node -e '
+        const p=require(process.argv[1]);
+        console.log("# Holistic bench plan · "+new Date().toISOString().slice(0,10));
+        console.log("# 逐条执行，然后 holistic bench record <id> PASS|PARTIAL|FAIL [--evidence \"...\"]\n");
+        for(const x of p.probes) console.log(`[${x.id}] (${x.lane}) ${x.prompt}\n    judge: ${x.judge}\n`);
+      ' "$SELF/benchmarks/probes.json"
+      ;;
+    record)
+      local id="${ARGS[2]:-}" res="${ARGS[3]:-}"
+      [ -n "$id" ] && [ -n "$res" ] || { err "用法: holistic bench record <id> PASS|PARTIAL|FAIL [--evidence \"...\"]"; return 2; }
+      local ev="" i=4
+      while [ "$i" -lt "${#ARGS[@]}" ]; do
+        case "${ARGS[$i]}" in --evidence) ev="${ARGS[$((i+1))]:-}"; i=$((i+2)) ;; *) i=$((i+1)) ;; esac
+      done
+      node -e '
+        const fs=require("fs");
+        const [file,id,res,ev]=process.argv.slice(1);
+        fs.appendFileSync(file, JSON.stringify({id:Number(id),result:res,evidence:ev,at:new Date().toISOString()})+"\n");
+        console.log(`记录 #${id} = ${res}`);
+      ' "$cur" "$id" "$res" "$ev"
+      ;;
+    status)
+      [ -f "$cur" ] || { err "今天还没有记录，先 holistic bench plan 然后逐条 record"; return 1; }
+      node -e '
+        const fs=require("fs");
+        const [file,probesFile]=process.argv.slice(1);
+        const defs=JSON.parse(fs.readFileSync(probesFile,"utf8"));
+        const rows=fs.readFileSync(file,"utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+        const last={}; for(const r of rows) last[r.id]=r;
+        let pass=0;
+        for(const p of defs.probes){
+          const r=last[p.id]; const res=r?r.result:"—";
+          if(res==="PASS") pass++;
+          console.log(`  ${String(p.id).padStart(2)} ${p.lane.padEnd(9)} ${res.padEnd(8)} ${r&&r.evidence?r.evidence:""}`);
+        }
+        const gate=defs.gate;
+        console.log(`\n  PASS ${pass}/${gate.total}  gate>=${gate.min_pass}  ${pass>=gate.min_pass?"✅ 通过":"❌ 未达标：考虑 holistic fallback on --apply"}`);
+        process.exit(pass>=gate.min_pass?0:1);
+      ' "$cur" "$SELF/benchmarks/probes.json"
+      ;;
+    export)
+      local out="$SELF/benchmarks/$day-bench.md"
+      node -e '
+        const fs=require("fs");
+        const [file,probesFile,out]=process.argv.slice(1);
+        const defs=JSON.parse(fs.readFileSync(probesFile,"utf8"));
+        const rows=fs.readFileSync(file,"utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+        const last={}; for(const r of rows) last[r.id]=r;
+        const lines=[`# ${new Date().toISOString().slice(0,10)} · holistic bench`,"",
+          "| # | 车道 | 结果 | 证据 |","|---|---|---|---|"];
+        let pass=0;
+        for(const p of defs.probes){const r=last[p.id]||{};if(r.result==="PASS")pass++;
+          lines.push(`| ${p.id} | ${p.lane} | ${r.result||"—"} | ${(r.evidence||"").replace(/\|/g,"\\|")} |`);}
+        lines.push("",`PASS ${pass}/${defs.gate.total}（gate ≥${defs.gate.min_pass}）`,"");
+        fs.writeFileSync(out,lines.join("\n"));
+        console.log("已导出 "+out);
+      ' "$cur" "$SELF/benchmarks/probes.json" "$out"
+      ;;
+    *) err "用法: holistic bench {plan|record|status|export}"; return 2 ;;
+  esac
+}
+
+
+cmd_route(){
+  local q="${ARGS[1]:-}"
+  [ -n "$q" ] || { err '用法: holistic route "查询文本"'; return 2; }
+  node -e '
+    const fs=require("fs"),path=require("path");
+    const [root,q]=process.argv.slice(1);
+    const map=JSON.parse(fs.readFileSync(path.join(root,"router/map.json"),"utf8"));
+    let w={}; try{w=JSON.parse(fs.readFileSync(path.join(root,"router/weights.json"),"utf8")).lanes||{}}catch{}
+    const norm=x=>String(x).toLowerCase().replace(/\s+/g,"");
+    const text=norm(q);
+    const rows=[];
+    for(const [lane,v] of Object.entries(map.routes)){
+      const hits=(v.triggers||[]).filter(t=>text.includes(norm(t)));
+      const weight=w[lane]?.weight ?? 1;
+      rows.push({lane,skill:v.skill,hits:hits.length,weight,score:hits.length*weight,matched:hits.slice(0,4)});
+    }
+    rows.sort((a,b)=>b.score-a.score||a.lane.localeCompare(b.lane));
+    const top=rows.filter(r=>r.score>0);
+    if(!top.length){ console.log("无命中：请给 router/map.json 对应车道补触发词"); process.exit(0); }
+    for(const r of top.slice(0,3)) console.log(`  ${r.score.toFixed(2).padStart(5)}  ${r.lane.padEnd(9)} → ${r.skill.padEnd(15)} [${r.matched.join(",")}]`);
+  ' "$SELF" "$q"
+}
+cmd_learn(){
+  node -e '
+    const fs=require("fs"),path=require("path");
+    const root=process.argv[1];
+    const probes=JSON.parse(fs.readFileSync(path.join(root,"benchmarks/probes.json"),"utf8")).probes;
+    const laneOf=Object.fromEntries(probes.map(p=>[p.id,p.lane]));
+    const dir=path.join(root,"benchmarks/runs"); const stat={};
+    if(fs.existsSync(dir)) for(const f of fs.readdirSync(dir).filter(x=>x.endsWith(".jsonl"))){
+      for(const line of fs.readFileSync(path.join(dir,f),"utf8").trim().split("\n").filter(Boolean)){
+        let r; try{r=JSON.parse(line)}catch{continue}
+        const lane=laneOf[r.id]; if(!lane||lane==="meta"||lane==="structure") continue;
+        (stat[lane] ||= {pass:0,total:0});
+        stat[lane].total++; if(r.result==="PASS") stat[lane].pass++;
+      }
+    }
+    const lanes={};
+    for(const [lane,v] of Object.entries(stat)) lanes[lane]={weight:Number(((v.pass+1)/(v.total+2)).toFixed(3)),samples:v.total,pass:v.pass};
+    const all=Object.keys(JSON.parse(fs.readFileSync(path.join(root,"router/map.json"),"utf8")).routes);
+    for(const l of all) if(!lanes[l]) lanes[l]={weight:1,samples:0,pass:0};
+    const out={updatedAt:new Date().toISOString(),formula:"(pass+1)/(total+2)",lanes};
+    fs.writeFileSync(path.join(root,"router/weights.json"),JSON.stringify(out,null,2)+"\n");
+    console.log("  "+Object.entries(lanes).map(([k,v])=>`${k}=${v.weight}(${v.pass}/${v.samples})`).join("  "));
+    console.log("  → router/weights.json");
+  ' "$SELF"
+}
+
+
+cmd_suspend(){
+  node -e 'import(process.argv[1]).then(m=>{const r=m.suspend();console.log("暂停车道: "+(r.moved.join(", ")||"无"));if(r.kept.length)console.log("保留（被改过）: "+r.kept.join(", "))})' "$SELF/lib/provision.mjs"
+}
+cmd_resume(){
+  # 按当前模式恢复（light 不会把 327 待命区一起搬回来）
+  node --input-type=module -e "
+import { provision, status } from 'file://$SELF/lib/provision.mjs';
+provision('$SELF');
+const s = status('$SELF');
+console.log('已按 mode=' + s.mode + ' 恢复：车道 ' + s.lanes.live + '/' + s.lanes.package + ' · 领域技能 ' + s.pack.live + ' 在线 / ' + s.pack.off + ' 待命');
+"
+}
+
+
+cmd_guard(){
+  say "== 底线守卫 =="
+  # 授权自检：vendor 内含 UNLICENSED 代码时，远端仓库必须是 private
+  if [ -d "$SELF/vendor/qi-nx-agent" ]; then
+    local vis
+    vis=$(gh repo view --json visibility -q .visibility 2>/dev/null || echo unknown)
+    case "$vis" in
+      PRIVATE|unknown) say "  ✅ vendor 含 UNLICENSED 代码，仓库可见性：$vis" ;;
+      *) err "  ❌ vendor/qi-nx-agent 为 UNLICENSED，但仓库可见性为 $vis——转 public 前必须删除该目录"; return 1 ;;
+    esac
+  fi
+  if bash "$SELF/tests/contract.test.sh"; then
+    say "  ✅ 底线 1：SCALE = MAXIMUM（不淡化/不追问/fade 禁令）"
+    say "  ✅ 底线 2：四域集约覆盖 + 10 条路由 + 车道摘要"
+    say "  ✅ 固定边界：卡测/证件/流水 = 防御向"
+    return 0
+  fi
+  err "  ❌ 底线被破坏：见上面的失败项；改回去再提交"
+  return 1
+}
+cmd_hook(){
+  local f=".git/hooks/pre-commit"
+  [ -d .git ] || { err "不是 git 仓库"; return 1; }
+  if [ "$APPLY" = 1 ]; then cp "$SELF/hooks/pre-commit" "$f"; chmod +x "$f"; say "已安装 pre-commit 钩子 → $f"
+  else say "[dry-run] 安装 hooks/pre-commit 到 $f"; fi
+}
+
+
+cmd_companions(){
+  local sub="${ARGS[1]:-status}"
+  local prof="$DSH_HOME/profiles/$PROFILE"
+  case "$sub" in
+    status)
+      say "伴生插件（不 vendor，仅核对）"
+      node -e '
+        const fs=require("fs"),path=require("path");
+        const [root,prof]=process.argv.slice(1);
+        const c=JSON.parse(fs.readFileSync(path.join(root,"companions.json"),"utf8"));
+        for(const x of c.companions){
+          const comp=path.join(process.env.HOME,".dsh","components",x.id,"package.json");
+          const f=fs.existsSync(comp)?comp:path.join(prof,x.check);
+          let v="未安装";
+          try{v=JSON.parse(fs.readFileSync(f,"utf8")).version}catch{}
+          const ok=v===x.version;
+          console.log(`  ${ok?"✅":"○"} ${x.id.padEnd(15)} ${v.padEnd(10)} 期望 ${x.version}  — ${x.role}`);
+        }
+      ' "$SELF" "$prof"
+      ;;
+    install)
+      local rc=0
+      for pair in "dsh-purge:dsh-purge" "qi-nx-agent:qi-nx-agent"; do
+        local id="${pair%%:*}" src="$SELF/vendor/${pair##*:}"
+        local dst="$DSH_HOME/components/${pair%%:*}"
+        [ -d "$src" ] || { err "vendor 缺失：${src}（跳过 ${id}）"; rc=1; continue; }
+        if [ "$APPLY" = 1 ]; then
+          mkdir -p "$(dirname "$dst")"; rm -rf "$dst"; cp -R "$src" "$dst"
+          say "已从 vendor 安装 ${id}（${src}）→ $dst"
+          node -e '
+            const fs=require("fs"),f=process.argv[1],id=process.argv[2],dst=process.argv[3],asBundle=process.argv[4]==="true";
+            const p=JSON.parse(fs.readFileSync(f,"utf8"));
+            p.dependencies=p.dependencies||{}; p.dependencies[id]="link:"+dst;
+            if(asBundle){p.dsh=p.dsh||{};p.dsh.profile=p.dsh.profile||{};const b=p.dsh.profile.bundles=p.dsh.profile.bundles||[];if(!b.includes(id))b.push(id);}
+            fs.writeFileSync(f,JSON.stringify(p,null,2)+"\n");
+            console.log("  登记 "+id+(asBundle?"（deps + bundle）":"（deps）"));
+          ' "$DSH_HOME/profiles/$PROFILE/package.json" "$id" "$dst" "$(node -e 'const c=require(process.argv[1]);const x=c.companions.find(y=>y.id===process.argv[2]);process.stdout.write(String(x&&x.bundle===true))' "$SELF/companions.json" "$id")"
+        else
+          say "[dry-run] cp -R $src → $dst"
+        fi
+      done
+      return $rc
+      ;;
+    plan)
+      say "安装/修复命令（需自行执行；本仓库不代装）"
+      node -e '
+        const fs=require("fs");const c=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+        const cli="bash \"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh\"";
+        for(const x of c.companions) console.log(`  ${cli} plugin --profile desktop add "${x.spec}"`);
+      ' "$SELF/companions.json"
+      ;;
+    *) err "用法: holistic companions {status|plan}"; return 2 ;;
+  esac
+}
+
+
+cmd_reset(){
+  # 清空本机破甲栈：摘登记 + 移走插件目录（可选连技能一起隔离）
+  local purge_skills=0
+  for a in "${ARGS[@]}"; do [ "$a" = "--purge-skills" ] && purge_skills=1; done
+  local prof="$DSH_HOME/profiles/$PROFILE" q="$DSH_HOME/.holistic/quarantine-$(date +%Y%m%d-%H%M%S)"
+  say "reset（apply=$APPLY purge_skills=${purge_skills}）"
+  say "  隔离目录: $q"
+  if [ "$APPLY" = 1 ]; then
+    mkdir -p "$q/plugins" "$q/skills"
+    node -e '
+      const fs=require("fs"),f=process.argv[1];
+      const p=JSON.parse(fs.readFileSync(f,"utf8"));
+      for(const id of ["holistic-purge","dsh-purge","qi-nx-agent"]) if(p.dependencies) delete p.dependencies[id];
+      if(p.dsh&&p.dsh.profile&&p.dsh.profile.bundles)
+        p.dsh.profile.bundles=p.dsh.profile.bundles.filter(b=>!["holistic-purge","dsh-purge","qi-nx-agent"].includes(b));
+      fs.writeFileSync(f,JSON.stringify(p,null,2)+"\n");
+      console.log("  已摘登记: holistic-purge / dsh-purge / qi-nx-agent");
+    ' "$prof/package.json"
+    for d in holistic-purge dsh-purge qi-nx-agent; do
+      [ -e "$prof/node_modules/$d" ] && rm -rf "$prof/node_modules/$d"
+      [ -d "$DSH_HOME/plugins/$d" ] && mv "$DSH_HOME/plugins/$d" "$q/plugins/" && say "  插件已隔离: $d"
+    done
+    if [ "$purge_skills" = 1 ]; then
+      local n=0
+      for d in "$DSH_HOME"/skills/*/; do [ -d "$d" ] && mv "$d" "$q/skills/" && n=$((n+1)); done
+      say "  技能已隔离: $n 个"
+    else
+      say "  技能保留（加 --purge-skills 可一并隔离）"
+    fi
+  else
+    say "  [dry-run] 摘登记 + 移走 plugins/{holistic-purge,dsh-purge,qi-nx-agent}"
+    [ "$purge_skills" = 1 ] && say "  [dry-run] 并把 skills/* 全部移入隔离目录"
+  fi
+}
+
+
+cmd_sync(){
+  node --input-type=module -e "
+import { provision, status } from 'file://$SELF/lib/provision.mjs';
+const r = provision('$SELF');
+const s = status('$SELF');
+console.log('铺开：车道 ' + r.lanes.provisioned.length + ' 变更 / 领域技能 ' + r.pack.provisioned.length + ' 变更（mode=' + s.mode + '）');
+console.log('当前：车道 ' + s.lanes.live + '/' + s.lanes.package + ' · 领域技能 ' + s.pack.live + ' 在线 / ' + s.pack.off + ' 待命 / 共 ' + s.pack.package + ' · manifest v' + s.manifest);
+"
+}
+
+
+cmd_presets(){
+  local sub="${ARGS[1]:-status}"
+  local prof="$DSH_HOME/profiles/$PROFILE"
+  local patch="$prof/cordis.patch.yml"
+  local begin="# >>> HOLISTIC-PRESETS (managed) >>>" end="# <<< HOLISTIC-PRESETS <<<"
+  case "$sub" in
+    status)
+      if [ -f "$patch" ] && grep -q "HOLISTIC-PRESETS (managed)" "$patch"; then
+        say "presets: 内置预设保留 + Holistic（profile 受管块）· preset 行 $(grep -cE '^[[:space:]]*- id: preset-' "$patch") 条"
+      else
+        say "presets: 未检测到 Holistic 预设（QNX 外源预设已移除）"
+      fi
+      ;;
+    install)
+      # QNX-Agent 外源预设已移除；DSH 内置预设保持原样，另加 Holistic。
+      # 受管块由 profile 维护，install 不再从 presets/qi 重建（源已移入 presets/qi.disabled-*），
+      # 避免把已停用的 QNX 预设加回来。
+      [ -f "$patch" ] || { err "找不到 $patch"; return 1; }
+      if grep -q "name: Holistic" "$patch"; then
+        say "presets: 受管块已含 Holistic，无需安装"
+      else
+        err "presets: 未检测到 Holistic 预设（请从 holistic-purge 备份恢复受管块）"
+        return 1
+      fi
+      ;;
+    remove)
+      [ -f "$patch" ] || return 1
+      local tmp; tmp=$(mktemp)
+      awk -v b="$begin" -v e="$end" 'BEGIN{skip=0} $0==b{skip=1;next} $0==e{skip=0;next} skip==0{print}' "$patch" > "$tmp"
+      if [ "$APPLY" = 1 ]; then cp -p "$patch" "$patch.bak-presets-$(date +%H%M%S)"; mv "$tmp" "$patch"; say "已移除 presets 块"; else rm -f "$tmp"; say "[dry-run] 移除 presets 块"; fi
+      ;;
+    *) err "用法: holistic presets {status|install|remove} [--apply]"; return 2 ;;
+  esac
+}
+
+cmd_deps(){
+  local sub="${ARGS[1]:-status}"
+  local with_ghidra=0; for a in "${ARGS[@]}"; do [ "$a" = "--with-ghidra" ] && with_ghidra=1; done
+  local venv="$DSH_HOME/components/qi-nx-py"
+  local py="$venv/bin/python"
+  local lbin="$HOME/.local/bin"
+  local uv="$HOME/.local/bin/uv"; command -v uv >/dev/null 2>&1 && uv=$(command -v uv)
+  local brew; brew=$(command -v brew 2>/dev/null || echo /opt/homebrew/bin/brew)
+  mkdir -p "$lbin"
+  case "$sub" in
+    status)
+      say "逆向工具链依赖"
+      local target="${QINX_PYTHON:-}"
+      [ -n "$target" ] || target=$(grep -m1 '^QINX_PYTHON=' "$DSH_HOME/.env" 2>/dev/null | cut -d= -f2-)
+      [ -n "$target" ] || target=$(command -v python 2>/dev/null || echo python3)
+      say "  解释器: $target"
+      "$target" - <<'PYCHK' 2>&1 | sed 's/^/  /'
+import importlib
+for m in ("lief","yara","uefi_firmware","mcp","chipsec"):
+    try:
+        importlib.import_module(m); print("%-14s OK" % m)
+    except Exception as e:
+        print("%-14s 缺失（%s）" % (m, type(e).__name__))
+PYCHK
+      echo "  外部工具:"
+      export PATH="$lbin:/opt/homebrew/bin:$PATH"
+      for b in binwalk UEFIExtract analyzeHeadless jadx apktool aapt2 apksigner apkanalyzer adb frida chipsec_main trivy semgrep osv-scanner; do
+        local found; found=$(command -v "$b" 2>/dev/null || true)
+        [ -n "$found" ] || { [ -x "$venv/bin/$b" ] && found="$venv/bin/$b"; }
+        printf "    %-14s %s\n" "$b" "${found:-缺}"
+      done
+      ;;
+    install)
+      [ "$APPLY" = 1 ] || { say "[dry-run] venv + pip + brew + android sdk + 链接（加 --apply 执行）"; return 0; }
+      say "1) Python 栈（venv: ${venv}）"
+      local base; base=$(command -v python3.10 2>/dev/null || command -v python3 2>/dev/null || echo python3)
+      [ -x "$py" ] || "$uv" venv --python "$base" "$venv" >/dev/null 2>&1 || true
+      "$uv" pip install --python "$py" --quiet lief yara-python uefi_firmware mcp chipsec frida-tools 2>&1 | tail -2
+      for b in frida chipsec_main chipsec_util; do [ -x "$venv/bin/$b" ] && ln -sf "$venv/bin/$b" "$lbin/$b"; done
+      say "2) Homebrew 工具"
+      for f in binwalk trivy semgrep osv-scanner apktool jadx openjdk@25; do
+        "$brew" list "$f" >/dev/null 2>&1 || "$brew" install "$f" >/dev/null 2>&1 || true
+      done
+      say "3) Android SDK"
+      if [ ! -d /opt/homebrew/share/android-commandlinetools ]; then "$brew" install --cask android-commandlinetools >/dev/null 2>&1 || true; fi
+      local sdk="$HOME/Library/Android/sdk"
+      if [ -x /opt/homebrew/share/android-commandlinetools/cmdline-tools/latest/bin/sdkmanager ]; then
+        yes 2>/dev/null | /opt/homebrew/share/android-commandlinetools/cmdline-tools/latest/bin/sdkmanager --sdk_root="$sdk" --licenses >/dev/null 2>&1 || true
+        /opt/homebrew/share/android-commandlinetools/cmdline-tools/latest/bin/sdkmanager --sdk_root="$sdk" "platform-tools" "build-tools;35.0.0" >/dev/null 2>&1 || true
+      fi
+      for p in "$sdk/build-tools/35.0.0/aapt2" "$sdk/build-tools/35.0.0/apksigner" "$sdk/platform-tools/adb" /opt/homebrew/share/android-commandlinetools/cmdline-tools/latest/bin/apkanalyzer; do
+        [ -x "$p" ] && ln -sf "$p" "$lbin/$(basename "$p")"
+      done
+      say "4) Ghidra"
+      if [ "$with_ghidra" = 1 ] && [ ! -d "$HOME/.local/opt/ghidra_12.2_PUBLIC" ]; then
+        say "  下载 Ghidra 12.2（约 543MB）"
+        mkdir -p ~/Downloads/ghidra-dl && ( cd ~/Downloads/ghidra-dl && gh release download Ghidra_12.2_build --repo NationalSecurityAgency/ghidra --pattern "ghidra_12.2_PUBLIC_*.zip" --clobber >/dev/null 2>&1 )
+        mkdir -p "$HOME/.local/opt" && unzip -qo ~/Downloads/ghidra-dl/ghidra_12.2_PUBLIC_*.zip -d "$HOME/.local/opt" && chmod +x "$HOME/.local/opt/ghidra_12.2_PUBLIC/support/"*.sh
+      fi
+      [ -d "$HOME/.local/opt/ghidra_12.2_PUBLIC" ] && ln -sf "$HOME/.local/opt/ghidra_12.2_PUBLIC/support/analyzeHeadless" "$lbin/analyzeHeadless"
+      say "5) 环境变量"
+      local envf="$DSH_HOME/.env"
+      grep -q '^QINX_PYTHON=' "$envf" 2>/dev/null || echo "QINX_PYTHON=$py" >> "$envf"
+      grep -q '^JAVA_HOME=' "$envf" 2>/dev/null || echo "JAVA_HOME=/opt/homebrew/opt/openjdk@25" >> "$envf"
+      grep -q '^ANDROID_HOME=' "$envf" 2>/dev/null || echo "ANDROID_HOME=$sdk" >> "$envf"
+      grep -q '^ANDROID_SDK_ROOT=' "$envf" 2>/dev/null || echo "ANDROID_SDK_ROOT=$sdk" >> "$envf"
+      [ -x "$lbin/analyzeHeadless" ] && { grep -q '^GHIDRA_ANALYZE_HEADLESS=' "$envf" 2>/dev/null || echo "GHIDRA_ANALYZE_HEADLESS=$lbin/analyzeHeadless" >> "$envf"; }
+      mkdir -p "$DSH_HOME/.holistic" && date > "$DSH_HOME/.holistic/deps.ok"
+      say "完成（已写 deps.ok 标记）。重启 DSH 使 env 生效；随后 holistic deps status 复核。"
+      ;;
+    *) err "用法: holistic deps {status|install} [--apply] [--with-ghidra]"; return 2 ;;
+  esac
+}
+
+
+cmd_mode(){
+  local sub="${ARGS[1]:-status}" mf="$STATE/mode"
+  case "$sub" in
+    status)
+      local m; m=$([ -f "$mf" ] && cat "$mf" || node --input-type=module -e "import {readMode} from 'file://$SELF/lib/mode.mjs';process.stdout.write(readMode())" 2>/dev/null || echo light)
+      say "mode: ${m}（light=车道+预设在线上，327 技能与 MCP 待命；full=全部在线）"
+      ;;
+    light|full)
+      [ "$APPLY" = 1 ] || { say "[dry-run] 切换 mode → ${sub}（加 --apply 生效，重启 DSH 完全生效）"; return 0; }
+      node --input-type=module -e "
+import { writeMode } from 'file://$SELF/lib/mode.mjs';
+import { provision, status } from 'file://$SELF/lib/provision.mjs';
+import { ensurePresets } from 'file://$SELF/lib/fullstack.mjs';
+writeMode('$sub');
+const r = provision('$SELF');
+ensurePresets('$SELF');
+const s = status('$SELF');
+console.log('  车道 ' + s.lanes.live + '/' + s.lanes.package + ' · 领域技能 ' + s.pack.live + ' 在线 / ' + s.pack.off + ' 待命');
+if (r.pack.kept.length) console.log('  保留（内容被改过）: ' + r.pack.kept.length + ' 个');
+" 2>/dev/null || { err "切换失败"; return 1; }
+      say "已切到 ${sub}，重启 DSH 生效"
+      ;;
+    *) err "用法: holistic mode {status|light|full} [--apply]"; return 2 ;;
+  esac
+}
+
+cmd_uninstall(){
+  say "uninstall (apply=$APPLY)"
+  local bak; bak=$(backup_profile); say "  备份: $bak"
+  if [ "$APPLY" = 1 ]; then
+    node -e '
+      const fs=require("fs");const f=process.argv[1];
+      const p=JSON.parse(fs.readFileSync(f,"utf8"));
+      if(p.dependencies) delete p.dependencies["holistic-purge"];
+      if(p.dsh&&p.dsh.profile&&p.dsh.profile.bundles)
+        p.dsh.profile.bundles=p.dsh.profile.bundles.filter(x=>x!=="holistic-purge");
+      fs.writeFileSync(f, JSON.stringify(p,null,2)+"\n");
+    ' "$DSH_HOME/profiles/$PROFILE/package.json"
+    rm -rf "$DSH_HOME/plugins/$PLUGIN_ID"
+    # 只删我们铺过的（按 manifest：lanes 带 h- 前缀，pack 原名）
+    node --input-type=module -e "
+import { readFileSync, rmSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+const home = process.env.DSH_HOME || '';
+const mf = join(home, '.holistic', 'manifest.json');
+if (existsSync(mf)) {
+  const m = JSON.parse(readFileSync(mf, 'utf8'));
+  let n = 0;
+  for (const [name] of Object.entries(m.lanes || {})) { const p = join(home, 'skills', 'h-' + name); if (existsSync(p)) { rmSync(p, { recursive: true, force: true }); n++; } }
+  for (const [name] of Object.entries(m.pack || {})) { const p = join(home, 'skills', name); if (existsSync(p)) { rmSync(p, { recursive: true, force: true }); n++; } }
+  console.log('  已移除技能 ' + n + ' 个（按 manifest）');
+} else {
+  console.log('  无 manifest，跳过技能清理');
+}
+"
+    launchctl unload "$HOME/Library/LaunchAgents/com.local.holistic.healer.plist" 2>/dev/null || true
+    rm -f "$HOME/Library/LaunchAgents/com.local.holistic.healer.plist"
+    rm -rf "$STATE/skills-off" "$STATE/mode"
+    say "  已移除插件、技能（在线+待命）、healer"
+  else
+    say "  [dry-run] 移除依赖/bundle/插件目录/${SKILL_PREFIX}* 技能/healer"
+  fi
+}
+
+
+cmd_fallback(){
+  local mode="${ARGS[1]:-status}"
+  local purge="$DSH_HOME/profiles/$PROFILE/node_modules/dsh-purge"
+  local host="/Applications/DeepSeek Harness.app/Contents/Resources/app/dsh/node_modules/@deepseek-ai/dsh-system-prompt/lib/index.js"
+  case "$mode" in
+    status)
+      say "fallback（备用内骨骼）状态"
+      say "  purge 安装    : $([ -d "$purge" ] && echo 在 || echo 不在)"
+      say "  宿主补丁站点  : $(grep -c 'dsh-purge' "$host" 2>/dev/null || echo 0)"
+      say "  armor 守护    : $(launchctl list 2>/dev/null | grep -c dsh-armor) 个"
+      say "  HOLISTIC 内核 : $(node -e 'try{process.stdout.write("ok")}catch(e){}' 2>/dev/null || echo -)"
+      ;;
+    on)
+      if [ ! -d "$(purge_dir)" ]; then
+        err "内骨骼未安装：$(purge_dir) 不存在"
+        err "先装伴生插件：holistic companions plan"
+        return 1
+      fi
+      [ "$APPLY" = 1 ] || { say "[dry-run] purge --apply + load armor"; return 0; }
+      ( cd "$purge" && node bin/dsh-purge.js --apply ) | tail -3
+      for p in "$HOME/Library/LaunchAgents"/com.local.dsh-armor.*.plist; do [ -f "$p" ] && launchctl load "$p" 2>/dev/null; done
+      say "已启用备用内骨骼（重启 DSH 生效）"
+      ;;
+    off)
+      [ "$APPLY" = 1 ] || { say "[dry-run] purge --revert + unload armor"; return 0; }
+      for p in "$HOME/Library/LaunchAgents"/com.local.dsh-armor.*.plist; do [ -f "$p" ] && launchctl unload "$p" 2>/dev/null; done
+      ( cd "$purge" && node bin/dsh-purge.js --revert ) | tail -3
+      say "已回到 HOLISTIC 单边（重启 DSH 生效）"
+      ;;
+    *) err "用法: holistic fallback {status|on|off} [--apply]"; return 2 ;;
+  esac
+}
+
+case "$CMD" in
+  status)    cmd_status ;;
+  verify)    cmd_verify ;;
+  apply|install) cmd_apply ;;
+  healer)    cmd_healer ;;
+  uninstall|remove) cmd_uninstall ;;
+  fallback)  cmd_fallback ;;
+  heal)      cmd_heal ;;
+  bench)     cmd_bench ;;
+  route)     cmd_route ;;
+  suspend)   cmd_suspend ;;
+  resume)    cmd_resume ;;
+  guard)     cmd_guard ;;
+  hook)      cmd_hook ;;
+  reset)     cmd_reset ;;
+  sync)      cmd_sync ;;
+  presets)   cmd_presets ;;
+  doctor)    cmd_doctor ;;
+  probe)     cmd_probe ;;
+  selftest)  cmd_selftest ;;
+  deps)      cmd_deps ;;
+  mode)      cmd_mode ;;
+  companions) cmd_companions ;;
+  learn)     cmd_learn ;;
+  *) err "用法: holistic {status|verify|apply|doctor|probe|selftest|healer|uninstall|fallback|heal|bench|route|learn|suspend|resume|guard|hook|reset|sync|presets|deps|mode|companions} [--apply] [--workspace DIR] [--no-sync] [--quiet]"; exit 2 ;;
+esac

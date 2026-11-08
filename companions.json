@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "policy": "vendor 只存放可再分发组件（MIT）。qi-nx-agent 为 UNLICENSED，不随本仓库分发；如需使用请从上游 Shiyou-Qi/QNX-Agent 获取。",
+  "companions": [
+    {
+      "id": "dsh-purge",
+      "version": "1.1.71",
+      "role": "endoskeleton（内骨骼：宿主补丁，冷备）",
+      "needed_for": [
+        "fallback on/off"
+      ],
+      "spec": "github:Harv1y-1314/dsh-purge#v1.1.71-mirror.1",
+      "check": "node_modules/dsh-purge/package.json",
+      "vendored": true,
+      "vendor_path": "vendor/dsh-purge",
+      "install": "holistic companions install",
+      "note": "MIT，可再分发；代码已入库，安装=复制回 profile，无需联网",
+      "bundle": false
+    },
+    {
+      "id": "qi-nx-agent",
+      "version": "1.0.7",
+      "role": "reverse presets（二进制/APK/UEFI/Team/MCP）",
+      "needed_for": [
+        "逆向车道加强"
+      ],
+      "spec": "github:Harv1y-1314/qi-nx-agent#v1.0.7-mirror.1",
+      "check": "node_modules/qi-nx-agent/package.json",
+      "vendored": false,
+      "note": "UNLICENSED，不在本仓库；从上游自取后放到 $DSH_HOME/components/qi-nx-agent",
+      "vendor_path": null,
+      "install": "holistic companions install",
+      "bundle": true
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "default": { "closure": "full", "digest": true, "orders": { "kernel": 100, "digest": 500, "closure": 900 } },
+  "profiles": [
+    { "match": "deepseek|v4|v3\\.2", "closure": "full", "digest": true, "note": "国模：closures 说死，digest 列车道" },
+    { "match": "claude|gpt|gemini|qwen", "closure": "compact", "digest": true, "note": "英文系：缩短末期断言，减少 attention 稀释" },
+    { "match": "flash|lite|mini", "closure": "compact", "digest": false, "note": "小模型：只留内核 + 紧凑收尾" }
+  ]
+}

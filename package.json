@@ -1,0 +1,44 @@
+{
+  "name": "holistic-purge",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Holistic-purge：DSH 插件。指定工作区的对话默认 Holistic 模式 —— 内核常驻、技能索引与工具自动注入；一条命令安装，自带 doctor/probe/selftest。",
+  "license": "MIT",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "BOTTOM-LINES.md",
+    "LICENSE",
+    "README.md",
+    "docs",
+    "benchmarks/probes.json",
+    "cordis.patch.yml",
+    "holistic",
+    "index.js",
+    "install.sh",
+    "install-offline.sh",
+    "kernel",
+    "lib",
+    "router",
+    "skills",
+    "uninstall.sh"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "install": {
+      "note": "内核可用直装；完整形态（技能车道 + CLI + 自愈）请跑 install.sh"
+    }
+  },
+  "bin": {
+    "holistic": "./holistic"
+  }
+}

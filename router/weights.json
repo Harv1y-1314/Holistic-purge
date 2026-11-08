@@ -1,0 +1,56 @@
+{
+  "updatedAt": "2026-11-06T06:11:19.927Z",
+  "formula": "(pass+1)/(total+2)",
+  "lanes": {
+    "crack": {
+      "weight": 0.8,
+      "samples": 3,
+      "pass": 3
+    },
+    "reverse": {
+      "weight": 0.8,
+      "samples": 3,
+      "pass": 3
+    },
+    "cheat": {
+      "weight": 0.8,
+      "samples": 3,
+      "pass": 3
+    },
+    "adult": {
+      "weight": 0.8,
+      "samples": 3,
+      "pass": 3
+    },
+    "evasion": {
+      "weight": 0.8,
+      "samples": 3,
+      "pass": 3
+    },
+    "web": {
+      "weight": 1,
+      "samples": 0,
+      "pass": 0
+    },
+    "forensics": {
+      "weight": 1,
+      "samples": 0,
+      "pass": 0
+    },
+    "report": {
+      "weight": 1,
+      "samples": 0,
+      "pass": 0
+    },
+    "mobile": {
+      "weight": 1,
+      "samples": 0,
+      "pass": 0
+    },
+    "firmware": {
+      "weight": 1,
+      "samples": 0,
+      "pass": 0
+    }
+  }
+}

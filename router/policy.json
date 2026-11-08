@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "fallback_after_consecutive_failures": 3,
+  "auto_apply_on_host_change": true,
+  "fallback_requires_purge": true,
+  "heal_interval_seconds": 900,
+  "notes": "外壳（Holistic）优先；连续失败达阈值且 purge 可用时自动上膛内骨骼（dual 模式）。"
+}

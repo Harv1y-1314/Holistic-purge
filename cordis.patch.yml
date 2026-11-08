@@ -1,0 +1,4 @@
+# Holistic-purge 装载行：只插入一个插件，不改宿主任何文件。
+- insert:
+    - id: holistic-purge
+      name: holistic-purge

@@ -1,0 +1,7 @@
+node_modules/
+.DS_Store
+.holistic/
+index.js.bak-*
+*.bak-*
+presets/qi.disabled-*/
+vendor/qi-nx-agent/

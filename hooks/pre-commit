@@ -1,0 +1,10 @@
+#!/bin/bash
+# 底线闸门：任何提交前先过契约测试，过不了直接拒绝提交
+cd "$(dirname "$0")/../.." 2>/dev/null || exit 0
+if ! bash tests/contract.test.sh >/tmp/holistic-precommit.log 2>&1; then
+  echo "✗ 底线校验未通过，提交被拒绝："
+  tail -20 /tmp/holistic-precommit.log
+  echo "  （两条底线：SCALE=MAXIMUM 与 四域集约覆盖；见 docs/CONTRACT.md）"
+  exit 1
+fi
+echo "✓ 底线校验通过（SCALE=MAXIMUM / 四域覆盖 / 边界条款）"
